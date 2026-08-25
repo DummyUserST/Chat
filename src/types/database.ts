@@ -30,6 +30,10 @@ export type Message = {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  attachment_url: string | null
+  attachment_type: string | null
+  attachment_name: string | null
+  attachment_duration: number | null
 }
 
 export type Database = {
