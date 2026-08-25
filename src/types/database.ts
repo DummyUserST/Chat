@@ -5,6 +5,8 @@ export type Profile = {
   avatar_url: string | null
   status: string | null
   last_seen: string | null
+  birthday: string | null
+  private_name: string | null
   created_at: string
   updated_at: string
 }

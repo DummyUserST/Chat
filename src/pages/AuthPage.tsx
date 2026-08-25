@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { ArrowRight, KeyRound, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowRight, Cake, KeyRound, ShieldCheck, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
+import { useAuth, calculateAge } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 
 export default function AuthPage({ signup = false }: { signup?: boolean }) {
   const { user, signIn, signUp, verifyMFA, mfaChallenge } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ email: '', password: '', username: '', displayName: '' })
+  const [form, setForm] = useState({ email: '', identifier: '', password: '', username: '', displayName: '', birthday: '', privateName: '' })
   const [mfaCode, setMfaCode] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -18,12 +19,18 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
     event.preventDefault()
     setBusy(true); setError(''); setNotice('')
     if (signup) {
-      const result = await signUp(form.email, form.password, form.username, form.displayName)
+      const age = calculateAge(form.birthday)
+      if (isNaN(age) || age < 14) {
+        setError('You must be at least 14 years old to use Tandem.')
+        setBusy(false)
+        return
+      }
+      const result = await signUp(form.email, form.password, form.username, form.displayName, form.birthday, form.privateName)
       if (result.error) setError(result.error)
       else if (result.needsConfirmation) setNotice('Check your email to confirm your account.')
       else navigate('/chats')
     } else {
-      const result = await signIn(form.email, form.password)
+      const result = await signIn(form.identifier, form.password)
       if (result.error) setError(result.error)
       else if (result.mfaRequired) setNotice('')
       else navigate('/chats')
@@ -99,7 +106,7 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
           <div className="mobile-brand brand"><span className="brand-mark"><Sparkles size={17} /></span> tandem</div>
           <p className="eyebrow">{signup ? 'Start a new rhythm' : 'Welcome back'}</p>
           <h2>{signup ? 'Create your space.' : 'Good to see you.'}</h2>
-          <p className="muted">{signup ? 'Set up your profile and find your people.' : 'Sign in to pick up where you left off.'}</p>
+          <p className="muted">{signup ? 'Set up your profile and find your people.' : 'Sign in with your username or email to pick up where you left off.'}</p>
           <form onSubmit={submit}>
             {signup && <>
               <label>Username
@@ -108,16 +115,32 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
               <label>Display name
                 <input required maxLength={60} placeholder="How should we call you?" value={form.displayName} onChange={e => setForm({ ...form, displayName: e.target.value })} />
               </label>
+              <label>Private name <small className="muted">Visible only to you and admins</small>
+                <input required maxLength={60} placeholder="Your real name" value={form.privateName} onChange={e => setForm({ ...form, privateName: e.target.value })} />
+              </label>
+              <label>Birthday <span className="input-with-icon"><Cake size={15} /></span>
+                <input required type="date" value={form.birthday} onChange={e => setForm({ ...form, birthday: e.target.value })} />
+              </label>
+              {form.birthday && calculateAge(form.birthday) < 14 && (
+                <p className="error">You must be at least 14 years old to use Tandem.</p>
+              )}
             </>}
-            <label>Email address
-              <input required type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-            </label>
+            {!signup && (
+              <label>Username or email
+                <input required placeholder="username or you@example.com" value={form.identifier} onChange={e => setForm({ ...form, identifier: e.target.value })} autoFocus />
+              </label>
+            )}
+            {signup && (
+              <label>Email address
+                <input required type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+              </label>
+            )}
             <label>Password
               <input required minLength={6} type="password" placeholder="At least 6 characters" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
             </label>
             {error && <p className="error">{error}</p>}
             {notice && <p className="success">{notice}</p>}
-            <button className="primary-button" disabled={busy}>
+            <button className="primary-button" disabled={busy || (signup && form.birthday !== '' && calculateAge(form.birthday) < 14)}>
               {busy ? 'Working...' : signup ? 'Create account' : 'Sign in'} <ArrowRight size={17} />
             </button>
           </form>

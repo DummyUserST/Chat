@@ -126,7 +126,7 @@ export default function AdminPage() {
             {tab === 'profiles' && (
               <div className="admin-table">
                 <div className="admin-row admin-row-head">
-                  <span>User</span><span>Username</span><span>Status</span><span>Joined</span>
+                  <span>User</span><span>Username</span><span>Private name</span><span>Status</span><span>Joined</span>
                 </div>
                 {profiles.length === 0 && <p className="admin-empty">No profiles yet.</p>}
                 {profiles.map(p => (
@@ -136,6 +136,7 @@ export default function AdminPage() {
                       <span><b>{p.display_name}</b><small>{shortId(p.id)}</small></span>
                     </span>
                     <span className="admin-username">@{p.username}</span>
+                    <span className="admin-private-name">{p.private_name || '—'}</span>
                     <em className={p.status === 'online' ? 'online-label' : 'offline-label'}>{p.status || 'offline'}</em>
                     <time>{fmtDate(p.created_at)}</time>
                   </div>

@@ -13,13 +13,22 @@ type AuthContextValue = {
   user: User | null
   loading: boolean
   mfaChallenge: MFAChallenge
-  signIn: (email: string, password: string) => Promise<{ error: string | null; mfaRequired: boolean }>
+  signIn: (identifier: string, password: string) => Promise<{ error: string | null; mfaRequired: boolean }>
   verifyMFA: (code: string) => Promise<{ error: string | null }>
-  signUp: (email: string, password: string, username: string, displayName: string) => Promise<{ error: string | null; needsConfirmation: boolean }>
+  signUp: (email: string, password: string, username: string, displayName: string, birthday: string, privateName: string) => Promise<{ error: string | null; needsConfirmation: boolean }>
   signOut: () => Promise<void>
 }
 const AuthContext = createContext<AuthContextValue | null>(null)
 const readableError = (message: string) => message.toLowerCase().includes('invalid') ? 'That email or password is not correct.' : message
+
+export function calculateAge(birthday: string): number {
+  const birth = new Date(birthday)
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const monthDiff = today.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -31,8 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (identifier: string, password: string) => {
     if (!isSupabaseConfigured) return { error: 'Tandem is temporarily unavailable. Please try again later.', mfaRequired: false }
+    let email = identifier.trim()
+    if (!email.includes('@')) {
+      const { data, error } = await supabase.rpc('get_email_by_username', { p_username: email.toLowerCase() })
+      if (error || !data) return { error: 'No account found with that username.', mfaRequired: false }
+      email = data
+    }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) return { error: readableError(error.message), mfaRequired: false }
     if (data.user) {
@@ -63,9 +78,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
-  const signUp = async (email: string, password: string, username: string, displayName: string) => {
+  const signUp = async (email: string, password: string, username: string, displayName: string, birthday: string, privateName: string) => {
     if (!isSupabaseConfigured) return { error: 'Tandem is temporarily unavailable. Please try again later.', needsConfirmation: false }
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username: username.toLowerCase(), display_name: displayName } } })
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { username: username.toLowerCase(), display_name: displayName, birthday, private_name: privateName } }
+    })
     return { error: error ? (error.message.includes('already registered') ? 'An account with that email already exists.' : error.message) : null, needsConfirmation: Boolean(data.user && !data.session) }
   }
   const signOut = async () => { await supabase.auth.signOut(); setMfaChallenge(null) }
