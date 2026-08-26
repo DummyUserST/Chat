@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { ArrowLeft, Check, KeyRound, LogOut, Plus, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Cake, Check, KeyRound, LogOut, Plus, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfile } from '../hooks/useProfile'
@@ -8,7 +8,7 @@ import { useMFA } from '../hooks/useMFA'
 export default function ProfilePage({ settings = false }: { settings?: boolean }) {
   const { user, signOut } = useAuth()
   const { profile, loading, updateProfile } = useProfile(user?.id)
-  const [form, setForm] = useState({ username: '', display_name: '', avatar_url: '' })
+  const [form, setForm] = useState({ username: '', display_name: '', avatar_url: '', private_name: '', birthday: '' })
   const [notice, setNotice] = useState('')
   const nav = useNavigate()
   const { getStatus, enroll, verify, unenroll } = useMFA()
@@ -21,7 +21,7 @@ export default function ProfilePage({ settings = false }: { settings?: boolean }
   const [mfaError, setMfaError] = useState('')
 
   useEffect(() => {
-    if (profile) setForm({ username: profile.username, display_name: profile.display_name, avatar_url: profile.avatar_url || '' })
+    if (profile) setForm({ username: profile.username, display_name: profile.display_name, avatar_url: profile.avatar_url || '', private_name: profile.private_name || '', birthday: profile.birthday || '' })
   }, [profile])
 
   useEffect(() => {
@@ -87,6 +87,12 @@ export default function ProfilePage({ settings = false }: { settings?: boolean }
           </label>
           <label>Avatar URL
             <input type="url" value={form.avatar_url} onChange={e => setForm({ ...form, avatar_url: e.target.value })} placeholder="https://..." />
+          </label>
+          <label>Private name <small className="muted">Visible only to you and admins</small>
+            <input maxLength={60} value={form.private_name} onChange={e => setForm({ ...form, private_name: e.target.value })} placeholder="Your real name" />
+          </label>
+          <label>Birthday <span className="input-with-icon"><Cake size={15} /></span>
+            <input type="date" value={form.birthday} onChange={e => setForm({ ...form, birthday: e.target.value })} />
           </label>
           {settings && (
             <label>Theme
