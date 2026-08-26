@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, CircleUserRound, File as FileIcon, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Search, Send, Settings, ShieldCheck, Sparkles, Square, Trash2, UserPlus, X } from 'lucide-react'
+import { ArrowLeft, CircleUserRound, File as FileIcon, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Sparkles, Square, Trash2, UserPlus, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { usePresence } from '../hooks/usePresence'
@@ -7,6 +7,8 @@ import { useProfile } from '../hooks/useProfile'
 import { useAttachments } from '../hooks/useAttachments'
 import { supabase } from '../lib/supabase'
 import type { Conversation, Message, Profile } from '../types/database'
+
+const ADMIN_MODE_KEY = 'tandem-admin-mode'
 
 const time = (value: string) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 const initials = (name: string) => name.split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase()
@@ -35,7 +37,15 @@ export default function ChatPage() {
   const [results, setResults] = useState<Profile[]>([])
   const [mobile, setMobile] = useState(false)
   const navigate = useNavigate()
-  const isAdmin = user?.app_metadata?.role === 'admin'
+  const hasAdminRole = user?.app_metadata?.role === 'admin'
+  const [adminMode, setAdminMode] = useState(() => localStorage.getItem(ADMIN_MODE_KEY) !== 'user')
+  const isAdmin = hasAdminRole && adminMode
+
+  const switchMode = () => {
+    const next = !adminMode
+    setAdminMode(next)
+    localStorage.setItem(ADMIN_MODE_KEY, next ? 'admin' : 'user')
+  }
 
   const load = async () => {
     if (!user) return
@@ -58,9 +68,16 @@ export default function ChatPage() {
 
   useEffect(() => {
     const t = setTimeout(async () => {
-      if (query.length < 2 || !user) { setResults([]); return }
-      const { data } = await supabase.from('profiles').select('*').neq('id', user.id).or(`username.ilike.%${query}%,display_name.ilike.%${query}%`).limit(8)
-      setResults(data || [])
+      const q = query.trim()
+      if (q.length < 2 || !user) { setResults([]); return }
+      if (q.includes('@')) {
+        const { data } = await supabase.rpc('get_user_by_email', { p_email: q.toLowerCase() })
+        if (data) setResults([data as Profile])
+        else setResults([])
+      } else {
+        const { data } = await supabase.from('profiles').select('*').neq('id', user.id).or(`username.ilike.%${q}%,display_name.ilike.%${q}%`).limit(8)
+        setResults(data || [])
+      }
     }, 250)
     return () => clearTimeout(t)
   }, [query, user?.id])
@@ -97,7 +114,7 @@ export default function ChatPage() {
         <div className="sidebar-body">
           <div className="search-box">
             <Search size={17} />
-            <input aria-label="Search users" placeholder="Find someone..." value={query} onChange={e => setQuery(e.target.value)} />
+            <input aria-label="Search by email or name" placeholder="Enter email to chat..." value={query} onChange={e => setQuery(e.target.value)} />
             {query && <button onClick={() => setQuery('')} aria-label="Clear"><X size={15} /></button>}
           </div>
           {results.length > 0 && (
@@ -132,6 +149,11 @@ export default function ChatPage() {
         <nav>
           <button onClick={() => navigate('/profile')}><CircleUserRound size={17} /> Profile</button>
           <button onClick={() => navigate('/settings')}><Settings size={17} /> Settings</button>
+          {hasAdminRole && (
+            <button onClick={switchMode} aria-label="Switch account mode">
+              <Repeat size={17} /> {adminMode ? 'Admin' : 'User'}
+            </button>
+          )}
           {isAdmin && <button onClick={() => navigate('/admin')}><ShieldCheck size={17} /> Admin</button>}
           <button onClick={signOut}><LogOut size={17} /> Log out</button>
         </nav>
@@ -187,6 +209,7 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
   const [uploading, setUploading] = useState(false)
   const [recording, setRecording] = useState(false)
   const [recordTime, setRecordTime] = useState(0)
+  const [sendError, setSendError] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -214,12 +237,17 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
     if (!chat) return
     const content = (params.content || '').trim()
     if (!content && !params.attachmentUrl) return
-    const { data } = await supabase.from('messages').insert({
+    setSendError('')
+    const { data, error } = await supabase.from('messages').insert({
       conversation_id: chat.conversation.id,
       sender_id: userId,
       content: content || '',
       ...(params.attachmentUrl ? { attachment_url: params.attachmentUrl, attachment_type: params.attachmentType!, attachment_name: params.attachmentName!, attachment_duration: params.attachmentDuration ?? null } : {})
     }).select().single()
+    if (error) {
+      setSendError('Could not send message. Please try again.')
+      return
+    }
     if (data) {
       setMessages(x => x.some(m => m.id === data.id) ? x : [...x, data])
       setText('')
@@ -331,6 +359,7 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
         )}
       </div>
       <div className="composer">
+        {sendError && <div className="composer-error">{sendError}</div>}
         {recording ? (
           <div className="recording-bar">
             <span className="recording-dot" />
