@@ -1,15 +1,26 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { ArrowLeft, Cake, Check, KeyRound, LogOut, Plus, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Cake, Check, KeyRound, LogOut, Plus, Repeat, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfile } from '../hooks/useProfile'
 import { useMFA } from '../hooks/useMFA'
+
+const ADMIN_MODE_KEY = 'tandem-admin-mode'
+const ADMIN_EMAIL = 'brody.levi@emanuelschool.nsw.edu.au'
 
 export default function ProfilePage({ settings = false }: { settings?: boolean }) {
   const { user, signOut } = useAuth()
   const { profile, loading, updateProfile } = useProfile(user?.id)
   const [form, setForm] = useState({ username: '', display_name: '', avatar_url: '', private_name: '', birthday: '' })
   const [notice, setNotice] = useState('')
+  const hasAdminRole = user?.app_metadata?.role === 'admin'
+  const canSwitchAdmin = user?.email === ADMIN_EMAIL && hasAdminRole
+  const [adminMode, setAdminMode] = useState(() => localStorage.getItem(ADMIN_MODE_KEY) !== 'user')
+  const switchMode = () => {
+    const next = !adminMode
+    setAdminMode(next)
+    localStorage.setItem(ADMIN_MODE_KEY, next ? 'admin' : 'user')
+  }
   const nav = useNavigate()
   const { getStatus, enroll, verify, unenroll } = useMFA()
   const [mfaEnrolled, setMfaEnrolled] = useState(false)
@@ -148,6 +159,24 @@ export default function ProfilePage({ settings = false }: { settings?: boolean }
                 </form>
               </div>
             )}
+          </section>
+        )}
+
+        {canSwitchAdmin && (
+          <section className="mfa-section" style={{ marginTop: '36px' }}>
+            <div className="mfa-header">
+              <span className="mfa-icon"><Repeat size={18} /></span>
+              <div>
+                <h2>Account mode</h2>
+                <p className="muted">Switch between your admin and regular user view.</p>
+              </div>
+            </div>
+            <div className="mfa-status-row">
+              <span className="mfa-active"><ShieldCheck size={15} /> Currently in {adminMode ? 'Admin' : 'User'} mode</span>
+              <button className="primary-button" style={{ minHeight: '40px', padding: '0 14px' }} onClick={switchMode}>
+                <Repeat size={15} /> Switch to {adminMode ? 'User' : 'Admin'}
+              </button>
+            </div>
           </section>
         )}
 
