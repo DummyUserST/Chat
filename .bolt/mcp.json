@@ -2,15 +2,6 @@
   "mcpServers": {
     "github": {
       "enabled": true
-    },
-    "notion": {
-      "enabled": true
-    },
-    "linear": {
-      "enabled": true
-    },
-    "sentry": {
-      "enabled": true
     }
   }
 }
