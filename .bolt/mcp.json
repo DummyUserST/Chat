@@ -5,6 +5,9 @@
     },
     "notion": {
       "enabled": true
+    },
+    "sentry": {
+      "enabled": true
     }
   }
 }
