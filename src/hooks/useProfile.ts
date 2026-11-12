@@ -13,5 +13,14 @@ export function useProfile(userId?: string) {
     if (error) return error.code === '23505' ? 'That username is already taken.' : 'Could not update your profile.'
     setProfile(data); return null
   }
-  return { profile, loading, updateProfile }
+  const uploadAvatar = async (file: File): Promise<{ url: string } | { error: string }> => {
+    if (!userId) return { error: 'You need to be signed in.' }
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${userId}/avatar-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false })
+    if (error) return { error: 'Could not upload that photo. Please try a different one.' }
+    const { data } = supabase.storage.from('attachments').getPublicUrl(path)
+    return { url: data.publicUrl }
+  }
+  return { profile, loading, updateProfile, uploadAvatar }
 }

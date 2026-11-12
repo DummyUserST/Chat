@@ -240,6 +240,12 @@ button { cursor: pointer; border: 0; background: none; color: inherit; }
 .settings-top button:hover { background: var(--bg-secondary); color: var(--text); }
 .settings-content { max-width: 560px; margin: 64px auto; padding: 0 24px; }
 .settings-form small { font-size: 11px; color: var(--text-disabled); font-weight: 400; }
+.avatar-upload { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.avatar-upload small { flex-basis: 100%; }
+.avatar-preview { width: 64px; height: 64px; flex-basis: 64px; font-size: 20px; }
+.avatar-upload-button { display: inline-flex !important; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: var(--transition); }
+.avatar-upload-button:hover { border-color: var(--primary); color: var(--primary); }
+.avatar-upload-button:has(input:disabled) { opacity: .6; cursor: progress; }
 .logout { margin-top: 36px; color: var(--error); display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: var(--radius-sm); transition: var(--transition); }
 .logout:hover { background: var(--error-bg); }
 .settings-content .primary-button { justify-self: start; }

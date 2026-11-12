@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react'
-import { ArrowLeft, Cake, Check, KeyRound, LogOut, Plus, Repeat, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
+import { ArrowLeft, Cake, Camera, Check, KeyRound, LogOut, Plus, Repeat, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfile } from '../hooks/useProfile'
@@ -10,9 +10,10 @@ const ADMIN_EMAIL = 'brody.levi@emanuelschool.nsw.edu.au'
 
 export default function ProfilePage({ settings = false }: { settings?: boolean }) {
   const { user, signOut } = useAuth()
-  const { profile, loading, updateProfile } = useProfile(user?.id)
+  const { profile, loading, updateProfile, uploadAvatar } = useProfile(user?.id)
   const [form, setForm] = useState({ username: '', display_name: '', avatar_url: '', private_name: '', birthday: '' })
   const [notice, setNotice] = useState('')
+  const [avatarBusy, setAvatarBusy] = useState(false)
   const hasAdminRole = user?.app_metadata?.role === 'admin'
   const canSwitchAdmin = user?.email === ADMIN_EMAIL && hasAdminRole
   const [adminMode, setAdminMode] = useState(() => localStorage.getItem(ADMIN_MODE_KEY) !== 'user')
@@ -46,6 +47,22 @@ export default function ProfilePage({ settings = false }: { settings?: boolean }
   const save = async (e: FormEvent) => {
     e.preventDefault()
     setNotice(await updateProfile(form) || 'Saved successfully.')
+  }
+
+  const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setNotice('Please choose an image file.'); return }
+    if (file.size > 5 * 1024 * 1024) { setNotice('Please choose an image under 5 MB.'); return }
+    setAvatarBusy(true)
+    setNotice('')
+    const result = await uploadAvatar(file)
+    if ('error' in result) { setNotice(result.error); setAvatarBusy(false); return }
+    const saveError = await updateProfile({ avatar_url: result.url })
+    setForm(prev => ({ ...prev, avatar_url: result.url }))
+    setNotice(saveError || 'Profile photo updated.')
+    setAvatarBusy(false)
   }
 
   const startEnroll = async () => {
@@ -96,9 +113,14 @@ export default function ProfilePage({ settings = false }: { settings?: boolean }
             <input pattern="[A-Za-z0-9_]+" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
             <small>3–24 letters, numbers, or underscores.</small>
           </label>
-          <label>Avatar URL
-            <input type="url" value={form.avatar_url} onChange={e => setForm({ ...form, avatar_url: e.target.value })} placeholder="https://..." />
-          </label>
+          <div className="avatar-upload">
+            <span className="avatar avatar-preview">{form.avatar_url ? <img src={form.avatar_url} alt="" /> : (form.display_name || form.username || '?').slice(0, 1).toUpperCase()}</span>
+            <label className="avatar-upload-button">
+              <Camera size={16} /> {avatarBusy ? 'Uploading...' : 'Upload photo'}
+              <input type="file" accept="image/*" disabled={avatarBusy} onChange={handleAvatarChange} hidden />
+            </label>
+            <small>JPG, PNG, or GIF up to 5 MB.</small>
+          </div>
           <label>Private name <small className="muted">Visible only to you and admins</small>
             <input maxLength={60} value={form.private_name} onChange={e => setForm({ ...form, private_name: e.target.value })} placeholder="Your real name" />
           </label>
