@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, CircleUserRound, File as FileIcon, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Sparkles, Square, Trash2, UserPlus, X } from 'lucide-react'
+import { ArrowLeft, Ban, CircleUserRound, File as FileIcon, Image, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Smile, Sparkles, Square, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { usePresence } from '../hooks/usePresence'
 import { useProfile } from '../hooks/useProfile'
 import { useAttachments } from '../hooks/useAttachments'
 import { supabase } from '../lib/supabase'
-import type { Conversation, Message, Profile } from '../types/database'
+import type { Conversation, Message, MessageReaction, Profile } from '../types/database'
 
 const ADMIN_MODE_KEY = 'tandem-admin-mode'
 
@@ -147,6 +147,8 @@ export default function ChatPage() {
           )}
         </div>
         <nav>
+          <button onClick={() => navigate('/stories')}><Image size={17} /> Stories</button>
+          <button onClick={() => navigate('/friends')}><Users size={17} /> Friends</button>
           <button onClick={() => navigate('/profile')}><CircleUserRound size={17} /> Profile</button>
           <button onClick={() => navigate('/settings')}><Settings size={17} /> Settings</button>
           {hasAdminRole && (
@@ -158,9 +160,30 @@ export default function ChatPage() {
           <button onClick={signOut}><LogOut size={17} /> Log out</button>
         </nav>
       </aside>
-      <ChatPanel chat={selected} userId={user?.id || ''} online={selected ? isOnline(selected.person.id) : false} back={() => setMobile(false)} />
+      <ChatPanel
+        chat={selected}
+        userId={user?.id || ''}
+        online={selected ? isOnline(selected.person.id) : false}
+        back={() => setMobile(false)}
+        onLeft={conversationId => {
+          setChats(x => x.filter(c => c.conversation.id !== conversationId))
+          setSelected(null)
+          setMobile(false)
+        }}
+      />
     </div>
   )
+}
+
+function groupReactions(list: MessageReaction[], userId: string) {
+  const groups = new Map<string, { emoji: string; count: number; mine: boolean }>()
+  for (const r of list) {
+    const g = groups.get(r.emoji) ?? { emoji: r.emoji, count: 0, mine: false }
+    g.count += 1
+    if (r.user_id === userId) g.mine = true
+    groups.set(r.emoji, g)
+  }
+  return [...groups.values()]
 }
 
 function AttachmentView({ message }: { message: Message }) {
@@ -202,7 +225,7 @@ function AttachmentView({ message }: { message: Message }) {
   )
 }
 
-function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: string; online: boolean; back: () => void }) {
+function ChatPanel({ chat, userId, online, back, onLeft }: { chat: Chat | null; userId: string; online: boolean; back: () => void; onLeft: (conversationId: string) => void }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(false)
@@ -226,10 +249,21 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
       setLoading(false)
       requestAnimationFrame(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight })
     })
-    const channel = supabase.channel(`chat-${chat.conversation.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${chat.conversation.id}` }, p => {
-      const message = p.new as Message
-      setMessages(x => p.eventType === 'INSERT' ? [...x, message] : x.map(m => m.id === message.id ? message : m))
-    }).subscribe()
+    const filter = `conversation_id=eq.${chat.conversation.id}`
+    const channel = supabase.channel(`chat-${chat.conversation.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, p => {
+        const message = p.new as Message
+        setMessages(x => x.some(m => m.id === message.id) ? x : [...x, message])
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter }, p => {
+        const message = p.new as Message
+        setMessages(x => x.map(m => m.id === message.id ? message : m))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, p => {
+        const id = (p.old as { id: string }).id
+        setMessages(x => x.filter(m => m.id !== id))
+      })
+      .subscribe()
     return () => { channel.unsubscribe() }
   }, [chat?.conversation.id])
 
@@ -312,8 +346,56 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
   }
 
+  const [reactions, setReactions] = useState<MessageReaction[]>([])
+  const [reactionPicker, setReactionPicker] = useState<string | null>(null)
+  const [showBlockMenu, setShowBlockMenu] = useState(false)
+  const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
+  useEffect(() => {
+    if (!chat) return
+    supabase.from('message_reactions').select('*').in('message_id', messages.map(m => m.id)).then(({ data }) => {
+      setReactions(data || [])
+    })
+    const reactionChannel = supabase.channel(`reactions-${chat.conversation.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, p => {
+      const r = p.new as MessageReaction
+      if (p.eventType === 'INSERT') setReactions(x => x.some(x2 => x2.id === r.id) ? x : [...x, r])
+      else if (p.eventType === 'DELETE') { const d = p.old as MessageReaction; setReactions(x => x.filter(x2 => x2.id !== d.id)) }
+    }).subscribe()
+    return () => { reactionChannel.unsubscribe() }
+  }, [chat?.conversation.id, messages.length])
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    const existing = reactions.find(r => r.message_id === messageId && r.user_id === userId && r.emoji === emoji)
+    if (existing) {
+      await supabase.from('message_reactions').delete().eq('id', existing.id)
+      setReactions(x => x.filter(r => r.id !== existing.id))
+    } else {
+      const { data } = await supabase.from('message_reactions').insert({ message_id: messageId, user_id: userId, emoji }).select().single()
+      if (data) setReactions(x => [...x, data])
+    }
+    setReactionPicker(null)
+  }
+
+  const reactionsFor = (messageId: string) => reactions.filter(r => r.message_id === messageId)
+
   const deleteMessage = async (id: string) => {
-    await supabase.from('messages').update({ content: 'Message deleted', deleted_at: new Date().toISOString(), attachment_url: null, attachment_type: null, attachment_name: null, attachment_duration: null }).eq('id', id).eq('sender_id', userId)
+    await supabase.from('messages').delete().eq('id', id).eq('sender_id', userId)
+    setMessages(x => x.filter(m => m.id !== id))
+    setReactions(x => x.filter(r => r.message_id !== id))
+  }
+
+  const blockUser = async () => {
+    if (!chat) return
+    await supabase.from('blocked_users').insert({ blocker_id: userId, blocked_id: chat.person.id })
+    setShowBlockMenu(false)
+  }
+
+  const deleteChat = async () => {
+    if (!chat) return
+    setShowBlockMenu(false)
+    const { error } = await supabase.from('conversation_members').delete().eq('conversation_id', chat.conversation.id).eq('user_id', userId)
+    if (error) { setSendError('Could not delete chat. Please try again.'); return }
+    onLeft(chat.conversation.id)
   }
 
   if (!chat) return (
@@ -330,10 +412,19 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
         <button className="back" onClick={back} aria-label="Back"><ArrowLeft size={19} /></button>
         <Avatar profile={chat.person} online={online} />
         <div><h2>{chat.person.display_name}</h2><p>{online ? 'Online now' : `@${chat.person.username}`}</p></div>
-        <button className="more" aria-label="More options"><MoreHorizontal size={20} /></button>
+        <button className="more" aria-label="More options" onClick={() => setShowBlockMenu(!showBlockMenu)}><MoreHorizontal size={20} /></button>
+        {showBlockMenu && (
+          <div className="chat-menu">
+            <button onClick={blockUser}><Ban size={15} /> Block user</button>
+            <button onClick={deleteChat}><Trash2 size={15} /> Delete chat</button>
+            <button onClick={() => setShowBlockMenu(false)}>Cancel</button>
+          </div>
+        )}
       </header>
       <div className="messages" ref={ref}>
-        {loading ? 'Loading messages...' : messages.length ? messages.map(m => (
+        {loading ? 'Loading messages...' : messages.length ? messages.map(m => {
+          const msgReactions = reactionsFor(m.id)
+          return (
           <div className={`message ${m.sender_id === userId ? 'mine' : ''}`} key={m.id}>
             <div className={m.deleted_at ? 'deleted' : ''}>
               {m.deleted_at ? 'Message deleted' : (
@@ -342,15 +433,33 @@ function ChatPanel({ chat, userId, online, back }: { chat: Chat | null; userId: 
                   {m.content && <span className="msg-text">{m.content}</span>}
                 </>
               )}
+              {msgReactions.length > 0 && !m.deleted_at && (
+                <div className="msg-reactions">
+                  {groupReactions(msgReactions, userId).map(r => (
+                    <button key={r.emoji} className={`msg-reaction ${r.mine ? 'mine' : ''}`} onClick={() => toggleReaction(m.id, r.emoji)}>{r.emoji} {r.count > 1 && <span>{r.count}</span>}</button>
+                  ))}
+                </div>
+              )}
               <small>
                 {time(m.created_at)}
+                {!m.deleted_at && (
+                  <button onClick={() => setReactionPicker(reactionPicker === m.id ? null : m.id)} aria-label="React"><Smile size={11} /></button>
+                )}
+                {reactionPicker === m.id && (
+                  <div className="reaction-picker">
+                    {QUICK_EMOJIS.map(e => (
+                      <button key={e} onClick={() => toggleReaction(m.id, e)}>{e}</button>
+                    ))}
+                  </div>
+                )}
                 {m.sender_id === userId && !m.deleted_at && (
                   <button onClick={() => deleteMessage(m.id)} aria-label="Delete message"><Trash2 size={11} /></button>
                 )}
               </small>
             </div>
           </div>
-        )) : (
+          )
+        }) : (
           <div className="empty-messages">
             <Sparkles size={18} />
             <b>No messages yet</b>

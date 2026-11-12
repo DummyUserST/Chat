@@ -12,6 +12,7 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [forgotMode, setForgotMode] = useState(false)
 
   useEffect(() => { if (user) navigate('/chats', { replace: true }) }, [user, navigate])
 
@@ -45,6 +46,54 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
     if (result.error) setError(result.error)
     else navigate('/chats')
     setBusy(false)
+  }
+
+  const submitForgot = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true); setError(''); setNotice('')
+    const email = form.email.trim()
+    if (!email) { setError('Enter your email address.'); setBusy(false); return }
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
+    setNotice('If an account exists for that email, a reset link has been sent. Check your inbox.')
+    setBusy(false)
+  }
+
+  if (forgotMode) {
+    return (
+      <main className="auth-shell">
+        <aside className="auth-art">
+          <div className="brand"><span className="brand-mark"><Sparkles size={17} /></span> tandem</div>
+          <div>
+            <p className="eyebrow">Account recovery</p>
+            <h1>Forgot your password?</h1>
+            <p>Enter your email and we'll send you a link to reset your password and get back to your conversations.</p>
+          </div>
+          <small>Private by design · Protected by 2FA &amp; Captcha</small>
+        </aside>
+        <section className="auth-panel">
+          <div className="auth-form">
+            <div className="mobile-brand brand"><span className="brand-mark"><Sparkles size={17} /></span> tandem</div>
+            <p className="eyebrow">Reset password</p>
+            <h2>Recover your account.</h2>
+            <p className="muted">Enter the email associated with your account and we'll send you a recovery link.</p>
+            <form onSubmit={submitForgot}>
+              <label>Email address
+                <input required type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} autoFocus />
+              </label>
+              {error && <p className="error">{error}</p>}
+              {notice && <p className="success">{notice}</p>}
+              <button className="primary-button" disabled={busy}>
+                {busy ? 'Sending...' : 'Send reset link'} <ArrowRight size={17} />
+              </button>
+            </form>
+            <p className="auth-switch">
+              Remember your password?{' '}
+              <button onClick={() => { setForgotMode(false); setNotice(''); setError('') }}>Back to sign in</button>
+            </p>
+          </div>
+        </section>
+      </main>
+    )
   }
 
   if (mfaChallenge) {
@@ -147,6 +196,9 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
           <div className="captcha-note">
             <KeyRound size={13} /> Protected by captcha to prevent automated sign-ups
           </div>
+          {!signup && (
+            <button className="forgot-link" onClick={() => { setForgotMode(true); setNotice(''); setError('') }}>Forgot password?</button>
+          )}
           <p className="auth-switch">
             {signup ? 'Already have an account?' : 'New to Tandem?'}{' '}
             <button onClick={() => navigate(signup ? '/login' : '/signup')}>{signup ? 'Sign in' : 'Create an account'}</button>
