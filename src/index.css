@@ -188,7 +188,7 @@ button { cursor: pointer; border: 0; background: none; color: inherit; }
 .empty-messages { margin: auto; display: grid; place-items: center; gap: 8px; color: var(--text-muted); }
 
 /* ---------- Composer ---------- */
-.composer { position: relative; flex-shrink: 0; margin: 0 max(6%,70px) clamp(12px, 3vh, 55px); min-height: 54px; border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); display: flex; align-items: flex-end; padding: 7px 8px 7px 14px; gap: 8px; box-shadow: var(--shadow-sm); transition: var(--transition); }
+.composer { position: relative; flex-shrink: 0; margin: 0 max(6%,70px) clamp(8px, 1.5vh, 16px); min-height: 54px; border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); display: flex; align-items: flex-end; padding: 7px 8px 7px 14px; gap: 8px; box-shadow: var(--shadow-sm); transition: var(--transition); }
 .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
 .composer textarea { resize: none; border: 0; outline: 0; background: none; line-height: 1.5; max-height: 120px; flex: 1; padding: 8px 0; color: var(--text); }
 .composer textarea::placeholder { color: var(--text-disabled); }
@@ -489,7 +489,7 @@ button { cursor: pointer; border: 0; background: none; color: inherit; }
   .mobile-chat .chat-panel { display: flex; }
   .back { display: grid; place-items: center; margin-right: 1px; }
   .messages { padding: 24px 16px; }
-  .composer { margin: 0 14px clamp(12px, 3vh, 44px); }
+  .composer { margin: 0 14px clamp(8px, 1.5vh, 14px); }
   .message > div { max-width: 84%; }
   .settings-content { margin: 40px auto; }
   .settings-top { padding: 0 16px; }
