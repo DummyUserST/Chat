@@ -60,6 +60,7 @@
 }
 
 * { box-sizing: border-box; }
+html, body, #root { height: 100%; }
 body { margin: 0; min-width: 320px; font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); font-synthesis: none; text-rendering: optimizeLegibility; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; border: 0; background: none; color: inherit; }
