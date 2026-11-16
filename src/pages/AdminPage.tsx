@@ -42,7 +42,24 @@ export default function AdminPage() {
     setLoading(false)
   }
 
-  useEffect(() => { if (isAdmin) load() }, [isAdmin])
+  const [unlocked, setUnlocked] = useState(false)
+  const [password, setPassword] = useState('')
+  const [unlockError, setUnlockError] = useState('')
+  const [unlocking, setUnlocking] = useState(false)
+
+  useEffect(() => { if (isAdmin && unlocked) load() }, [isAdmin, unlocked])
+
+  const unlock = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setUnlocking(true)
+    setUnlockError('')
+    const { data, error } = await supabase.rpc('admin_console_unlock', { p_password: password })
+    setUnlocking(false)
+    if (error) { setUnlockError('Could not verify the password. Please try again.'); return }
+    if (data !== true) { setUnlockError('Incorrect password.'); return }
+    setPassword('')
+    setUnlocked(true)
+  }
 
   const profileById = useMemo(() => {
     const map = new Map<string, Profile>()
@@ -77,6 +94,28 @@ export default function AdminPage() {
     { id: 'memberships', label: 'Memberships', icon: <UsersRound size={16} />, count: members.length },
     { id: 'messages', label: 'Messages', icon: <MessageSquare size={16} />, count: messages.length },
   ]
+
+  if (!unlocked) return (
+    <div className="admin-shell">
+      <main className="admin-content">
+        <form className="admin-gate" onSubmit={unlock}>
+          <span className="admin-badge"><ShieldCheck size={15} /> Administrator</span>
+          <h1>Enter admin password</h1>
+          <p className="muted">Admin data loads only after the password is verified.</p>
+          <input
+            type="password"
+            aria-label="Admin password"
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+          />
+          {unlockError && <div className="error">{unlockError}</div>}
+          <button type="submit" disabled={unlocking}>{unlocking ? 'Checking...' : 'Unlock'}</button>
+        </form>
+      </main>
+    </div>
+  )
 
   return (
     <div className="admin-shell">
