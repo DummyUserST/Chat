@@ -15,6 +15,21 @@ export type Conversation = {
   id: string
   created_at: string
   updated_at: string
+  is_group: boolean
+  name: string | null
+  privacy: 'private' | 'public'
+  join_setting: 'friends_only' | 'invite_only'
+  created_by: string | null
+}
+
+export type GroupInvite = {
+  id: string
+  conversation_id: string
+  invited_user_id: string
+  invited_by: string
+  status: 'pending' | 'accepted' | 'declined'
+  created_at: string
+  updated_at: string
 }
 
 export type ConversationMember = {
@@ -109,6 +124,7 @@ export type Database = {
       message_reactions: { Row: MessageReaction; Insert: Omit<MessageReaction, 'id' | 'created_at'>; Update: Partial<MessageReaction> }
       blocked_users: { Row: BlockedUser; Insert: Omit<BlockedUser, 'id' | 'created_at'>; Update: Partial<BlockedUser> }
       admin_broadcasts: { Row: AdminBroadcast; Insert: Omit<AdminBroadcast, 'id' | 'created_at'>; Update: Partial<AdminBroadcast> }
+      group_invites: { Row: GroupInvite; Insert: Omit<GroupInvite, 'id' | 'created_at' | 'updated_at'>; Update: Partial<GroupInvite> }
     }
     Views: Record<string, never>
     Functions: Record<string, never>

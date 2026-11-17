@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Ban, CircleUserRound, File as FileIcon, Image, LogIn, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Smile, Sparkles, Square, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { ArrowLeft, Ban, CircleUserRound, File as FileIcon, Globe, Image, Lock, LogIn, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Plus, Repeat, Search, Send, Settings, ShieldCheck, Smile, Sparkles, Square, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useFriends } from '../hooks/useFriends'
 import { usePresence } from '../hooks/usePresence'
 import { useProfile } from '../hooks/useProfile'
 import { useAttachments } from '../hooks/useAttachments'
@@ -18,7 +19,7 @@ function Avatar({ profile, online = false }: { profile?: Profile | null; online?
   return <span className="avatar">{profile?.avatar_url ? <img src={profile.avatar_url} alt="" /> : initials(profile?.display_name || '?')}{online && <i />}</span>
 }
 
-type Chat = { conversation: Conversation; person: Profile; latest?: Message }
+type Chat = { conversation: Conversation; person: Profile | null; members: Profile[]; latest?: Message }
 
 function getAttachmentType(file: File): 'image' | 'audio' | 'video' | 'file' {
   if (file.type.startsWith('image/')) return 'image'
@@ -31,16 +32,21 @@ export default function ChatPage() {
   const { user, signOut } = useAuth()
   const { profile } = useProfile(user?.id)
   const { isOnline } = usePresence(user?.id)
+  const { friends } = useFriends(user?.id)
   const [chats, setChats] = useState<Chat[]>([])
   const [selected, setSelected] = useState<Chat | null>(null)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Profile[]>([])
   const [mobile, setMobile] = useState(false)
   const [openError, setOpenError] = useState('')
+  const [showPlusMenu, setShowPlusMenu] = useState(false)
+  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [joinableGroups, setJoinableGroups] = useState<Conversation[]>([])
   const navigate = useNavigate()
   const hasAdminRole = user?.app_metadata?.role === 'admin'
   const [adminMode, setAdminMode] = useState(() => localStorage.getItem(ADMIN_MODE_KEY) !== 'user')
   const isAdmin = hasAdminRole && adminMode
+  const plusMenuRef = useRef<HTMLDivElement>(null)
 
   const switchMode = () => {
     const next = !adminMode
@@ -48,24 +54,62 @@ export default function ChatPage() {
     localStorage.setItem(ADMIN_MODE_KEY, next ? 'admin' : 'user')
   }
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setShowPlusMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   const load = async () => {
     if (!user) return
     const { data: memberships } = await supabase.from('conversation_members').select('conversation_id').eq('user_id', user.id)
     const rows = await Promise.all((memberships || []).map(async m => {
-      const [{ data: conversation }, { data: members }, { data: latest }] = await Promise.all([
+      const [{ data: conversation }, { data: memberRows }, { data: latest }] = await Promise.all([
         supabase.from('conversations').select('*').eq('id', m.conversation_id).maybeSingle(),
         supabase.from('conversation_members').select('user_id').eq('conversation_id', m.conversation_id),
         supabase.from('messages').select('*').eq('conversation_id', m.conversation_id).order('created_at', { ascending: false }).limit(1)
       ])
-      const id = members?.find(x => x.user_id !== user.id)?.user_id
-      if (!conversation || !id) return null
-      const { data: person } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
-      return person ? { conversation, person, latest: latest?.[0] } : null
+      if (!conversation) return null
+
+      const otherIds = (memberRows || []).map(x => x.user_id).filter(id => id !== user.id)
+      let members: Profile[] = []
+      let person: Profile | null = null
+
+      if (otherIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('*').in('id', otherIds)
+        members = profiles || []
+        person = members[0] || null
+      }
+
+      return { conversation, person, members, latest: latest?.[0] } as Chat
     }))
     setChats(rows.filter(Boolean) as Chat[])
   }
 
+  const loadJoinableGroups = async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('is_group', true)
+      .neq('created_by', user.id)
+    const groups = (data || []).filter(g => {
+      if (g.privacy === 'public') return true
+      if (g.join_setting === 'friends_only' && g.created_by) {
+        return friends.some(f => f.friend.id === g.created_by)
+      }
+      return false
+    })
+    const memberIds = new Set(chats.map(c => c.conversation.id))
+    setJoinableGroups(groups.filter(g => !memberIds.has(g.id)))
+  }
+
   useEffect(() => { load() }, [user?.id])
+  useEffect(() => { loadJoinableGroups() }, [user?.id, friends.length, chats.length])
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -86,7 +130,7 @@ export default function ChatPage() {
   const open = async (person: Profile) => {
     setQuery(''); setResults([])
     setOpenError('')
-    let chat = chats.find(x => x.person.id === person.id)
+    let chat = chats.find(x => x.person?.id === person.id && !x.conversation.is_group)
     if (!chat) {
       const { data: conversation, error } = await supabase.rpc('create_direct_conversation', { other_user_id: person.id })
       if (error) {
@@ -94,13 +138,33 @@ export default function ChatPage() {
         return
       }
       if (!conversation || !user) return
-      chat = { conversation, person }
+      chat = { conversation, person, members: [person] }
       setChats(x => [chat!, ...x])
     }
     setSelected(chat); setMobile(true)
   }
 
-  const previewText = (m?: Message) => {
+  const openGroup = (chat: Chat) => {
+    setSelected(chat); setMobile(true)
+  }
+
+  const joinGroup = async (conv: Conversation) => {
+    const { data, error } = await supabase.rpc('join_group_chat', { p_conversation_id: conv.id })
+    if (error || !data) {
+      setOpenError('Could not join this group.')
+      return
+    }
+    setOpenError('')
+    const { data: memberRows } = await supabase.from('conversation_members').select('user_id').eq('conversation_id', conv.id)
+    const otherIds = (memberRows || []).map(x => x.user_id).filter(id => id !== user?.id)
+    const { data: profiles } = await supabase.from('profiles').select('*').in('id', otherIds)
+    const chat: Chat = { conversation: data as Conversation, person: null, members: profiles || [] }
+    setChats(x => [chat, ...x])
+    setSelected(chat); setMobile(true)
+  }
+
+  const previewText = (chat: Chat) => {
+    const m = chat.latest
     if (!m) return 'Start a conversation'
     if (m.deleted_at) return 'Message deleted'
     if (m.attachment_type === 'audio') return 'Voice message'
@@ -108,6 +172,16 @@ export default function ChatPage() {
     if (m.attachment_type === 'video') return 'Video'
     if (m.attachment_type === 'file') return m.attachment_name || 'File'
     return m.content || 'Attachment'
+  }
+
+  const chatTitle = (chat: Chat) => {
+    if (chat.conversation.is_group) return chat.conversation.name || 'Group chat'
+    return chat.person?.display_name || 'Unknown'
+  }
+
+  const chatMembers = (chat: Chat) => {
+    if (chat.conversation.is_group) return `${chat.members.length + 1} members`
+    return chat.person ? `@${chat.person.username}` : ''
   }
 
   return (
@@ -136,16 +210,44 @@ export default function ChatPage() {
             </div>
           )}
           <div className="section-title">Your conversations
-            <button onClick={() => document.querySelector<HTMLInputElement>('.search-box input')?.focus()} aria-label="New chat"><UserPlus size={17} /></button>
+            <div className="plus-menu-wrapper" ref={plusMenuRef}>
+              <button onClick={() => setShowPlusMenu(!showPlusMenu)} aria-label="New"><Plus size={17} /></button>
+              {showPlusMenu && (
+                <div className="plus-dropdown">
+                  <button onClick={() => { setShowPlusMenu(false); document.querySelector<HTMLInputElement>('.search-box input')?.focus() }}>
+                    <UserPlus size={16} /> New direct chat
+                  </button>
+                  <button onClick={() => { setShowPlusMenu(false); setShowGroupModal(true) }}>
+                    <Users size={16} /> New group chat
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+          {joinableGroups.length > 0 && (
+            <div className="joinable-groups">
+              <div className="joinable-label">Groups you can join</div>
+              {joinableGroups.map(g => (
+                <button className="chat-row joinable-row" key={g.id} onClick={() => joinGroup(g)}>
+                  <span className="avatar group-avatar"><Users size={16} /></span>
+                  <span><b>{g.name || 'Group chat'}</b><small>{g.privacy === 'public' ? 'Public' : 'Friends only'} group</small></span>
+                  <span className="join-btn">Join</span>
+                </button>
+              ))}
+            </div>
+          )}
           {chats.sort((a, b) => new Date(b.conversation.updated_at).getTime() - new Date(a.conversation.updated_at).getTime()).map(c => (
-            <button className={`chat-row ${selected?.conversation.id === c.conversation.id ? 'active' : ''}`} key={c.conversation.id} onClick={() => { setSelected(c); setMobile(true) }}>
-              <Avatar profile={c.person} online={isOnline(c.person.id)} />
-              <span><b>{c.person.display_name}</b><small>{previewText(c.latest)}</small></span>
+            <button className={`chat-row ${selected?.conversation.id === c.conversation.id ? 'active' : ''}`} key={c.conversation.id} onClick={() => openGroup(c)}>
+              {c.conversation.is_group ? (
+                <span className="avatar group-avatar"><Users size={16} /></span>
+              ) : (
+                <Avatar profile={c.person} online={isOnline(c.person?.id || '')} />
+              )}
+              <span><b>{chatTitle(c)}</b><small>{previewText(c)}</small></span>
               {c.latest && <time>{time(c.latest.created_at)}</time>}
             </button>
           ))}
-          {!chats.length && (
+          {!chats.length && !joinableGroups.length && (
             <div className="empty-side">
               <MessageCircle size={23} />
               <b>No conversations yet</b>
@@ -170,7 +272,7 @@ export default function ChatPage() {
       <ChatPanel
         chat={selected}
         userId={user?.id || ''}
-        online={selected ? isOnline(selected.person.id) : false}
+        online={selected && !selected.conversation.is_group ? isOnline(selected.person?.id || '') : false}
         isAdminPanel={isAdmin}
         back={() => setMobile(false)}
         onLeft={conversationId => {
@@ -179,6 +281,126 @@ export default function ChatPage() {
           setMobile(false)
         }}
       />
+      {showGroupModal && (
+        <CreateGroupModal
+          friends={friends}
+          currentUserId={user?.id || ''}
+          onClose={() => setShowGroupModal(false)}
+          onCreated={async (conv) => {
+            setShowGroupModal(false)
+            const { data: memberRows } = await supabase.from('conversation_members').select('user_id').eq('conversation_id', conv.id)
+            const otherIds = (memberRows || []).map(x => x.user_id).filter(id => id !== user?.id)
+            const { data: profiles } = await supabase.from('profiles').select('*').in('id', otherIds)
+            const chat: Chat = { conversation: conv, person: null, members: profiles || [] }
+            setChats(x => [chat, ...x])
+            setSelected(chat); setMobile(true)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function CreateGroupModal({ friends, currentUserId, onClose, onCreated }: {
+  friends: { friend: Profile; requestId: string }[]
+  currentUserId: string
+  onClose: () => void
+  onCreated: (conv: Conversation) => void
+}) {
+  const [name, setName] = useState('')
+  const [privacy, setPrivacy] = useState<'private' | 'public'>('private')
+  const [joinSetting, setJoinSetting] = useState<'friends_only' | 'invite_only'>('friends_only')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const toggleFriend = (id: string) => {
+    setSelectedIds(x => x.includes(id) ? x.filter(i => i !== id) : [...x, id])
+  }
+
+  const create = async () => {
+    const trimmed = name.trim()
+    if (!trimmed) { setError('Enter a group name.'); return }
+    if (trimmed.length > 60) { setError('Group name must be 60 characters or fewer.'); return }
+    setBusy(true); setError('')
+    const { data, error: rpcError } = await supabase.rpc('create_group_chat', {
+      p_name: trimmed,
+      p_privacy: privacy,
+      p_join_setting: joinSetting,
+      p_member_ids: selectedIds
+    })
+    setBusy(false)
+    if (rpcError || !data) {
+      setError('Could not create the group. Please try again.')
+      return
+    }
+    onCreated(data as Conversation)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2><Users size={18} /> New group chat</h2>
+          <button onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <label className="modal-field">
+            <span>Group name</span>
+            <input value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="e.g. Weekend Trip" />
+          </label>
+          <div className="modal-field">
+            <span>Privacy</span>
+            <div className="segmented">
+              <button className={privacy === 'private' ? 'active' : ''} onClick={() => setPrivacy('private')}>
+                <Lock size={14} /> Private
+              </button>
+              <button className={privacy === 'public' ? 'active' : ''} onClick={() => setPrivacy('public')}>
+                <Globe size={14} /> Public
+              </button>
+            </div>
+          </div>
+          <div className="modal-field">
+            <span>Who can join</span>
+            <div className="segmented">
+              <button className={joinSetting === 'friends_only' ? 'active' : ''} onClick={() => setJoinSetting('friends_only')}>
+                Friends only
+              </button>
+              <button className={joinSetting === 'invite_only' ? 'active' : ''} onClick={() => setJoinSetting('invite_only')}>
+                Invite only
+              </button>
+            </div>
+            <small className="modal-hint">
+              {joinSetting === 'friends_only' ? 'Any of your friends can discover and join this group.' : 'Only people you invite can join.'}
+            </small>
+          </div>
+          {friends.length > 0 && (
+            <div className="modal-field">
+              <span>Add members ({selectedIds.length} selected)</span>
+              <div className="member-list">
+                {friends.map(f => (
+                  <button
+                    key={f.friend.id}
+                    className={`member-chip ${selectedIds.includes(f.friend.id) ? 'selected' : ''}`}
+                    onClick={() => toggleFriend(f.friend.id)}
+                  >
+                    {f.friend.avatar_url ? <img src={f.friend.avatar_url} alt="" /> : <span>{initials(f.friend.display_name)}</span>}
+                    <b>{f.friend.display_name}</b>
+                    {selectedIds.includes(f.friend.id) && <X size={14} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {error && <div className="error">{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button className="ghost-button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" onClick={create} disabled={busy || !name.trim()}>
+            {busy ? 'Creating...' : 'Create group'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -248,6 +470,8 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const recordTimeRef = useRef(0)
   const { upload, uploadWithDuration } = useAttachments(userId)
+
+  const isGroup = chat?.conversation.is_group ?? false
 
   useEffect(() => {
     if (!chat) return
@@ -401,7 +625,7 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
   }
 
   const blockUser = async () => {
-    if (!chat) return
+    if (!chat || !chat.person) return
     await supabase.from('blocked_users').insert({ blocker_id: userId, blocked_id: chat.person.id })
     setShowBlockMenu(false)
   }
@@ -413,6 +637,11 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
     if (error) { setSendError('Could not delete chat. Please try again.'); return }
     onLeft(chat.conversation.id)
   }
+
+  const headerTitle = isGroup ? (chat?.conversation.name || 'Group chat') : chat?.person?.display_name || 'Unknown'
+  const headerSubtitle = isGroup
+    ? `${(chat?.members.length || 0) + 1} members`
+    : online ? 'Online now' : `@${chat?.person?.username || ''}`
 
   if (!chat) return (
     <main className="chat-panel empty-panel">
@@ -426,8 +655,12 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
     <main className="chat-panel">
       <header className="chat-header">
         <button className="back" onClick={back} aria-label="Back"><ArrowLeft size={19} /></button>
-        <Avatar profile={chat.person} online={online} />
-        <div><h2>{chat.person.display_name}</h2><p>{online ? 'Online now' : `@${chat.person.username}`}</p></div>
+        {isGroup ? (
+          <span className="avatar group-avatar"><Users size={16} /></span>
+        ) : (
+          <Avatar profile={chat.person} online={online} />
+        )}
+        <div><h2>{headerTitle}</h2><p>{headerSubtitle}</p></div>
         {isAdminPanel && (
           <button
             className="admin-join-chat"
@@ -448,8 +681,8 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
         <button className="more" aria-label="More options" onClick={() => setShowBlockMenu(!showBlockMenu)}><MoreHorizontal size={20} /></button>
         {showBlockMenu && (
           <div className="chat-menu">
-            <button onClick={blockUser}><Ban size={15} /> Block user</button>
-            <button onClick={deleteChat}><Trash2 size={15} /> Delete chat</button>
+            {!isGroup && <button onClick={blockUser}><Ban size={15} /> Block user</button>}
+            <button onClick={deleteChat}><Trash2 size={15} /> {isGroup ? 'Leave group' : 'Delete chat'}</button>
             <button onClick={() => setShowBlockMenu(false)}>Cancel</button>
           </div>
         )}
@@ -457,11 +690,15 @@ function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat:
       <div className="messages" ref={ref}>
         {loading ? 'Loading messages...' : messages.length ? messages.map(m => {
           const msgReactions = reactionsFor(m.id)
+          const senderProfile = isGroup ? chat.members.find(p => p.id === m.sender_id) : null
           return (
           <div className={`message ${m.sender_id === userId ? 'mine' : ''}`} key={m.id}>
             <div className={m.deleted_at ? 'deleted' : ''}>
               {m.deleted_at ? 'Message deleted' : (
                 <>
+                  {isGroup && m.sender_id !== userId && senderProfile && (
+                    <small className="group-sender">{senderProfile.display_name}</small>
+                  )}
                   <AttachmentView message={m} />
                   {m.content && <span className="msg-text">{m.content}</span>}
                 </>
