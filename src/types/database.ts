@@ -21,6 +21,7 @@ export type ConversationMember = {
   conversation_id: string
   user_id: string
   joined_at: string
+  hidden: boolean
   profile?: Profile
 }
 
@@ -86,6 +87,14 @@ export type BlockedUser = {
   created_at: string
 }
 
+export type AdminBroadcast = {
+  id: string
+  message: string
+  created_by: string
+  created_at: string
+  cancelled_at: string | null
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -99,6 +108,7 @@ export type Database = {
       story_comments: { Row: StoryComment; Insert: Omit<StoryComment, 'id' | 'created_at'>; Update: Partial<StoryComment> }
       message_reactions: { Row: MessageReaction; Insert: Omit<MessageReaction, 'id' | 'created_at'>; Update: Partial<MessageReaction> }
       blocked_users: { Row: BlockedUser; Insert: Omit<BlockedUser, 'id' | 'created_at'>; Update: Partial<BlockedUser> }
+      admin_broadcasts: { Row: AdminBroadcast; Insert: Omit<AdminBroadcast, 'id' | 'created_at'>; Update: Partial<AdminBroadcast> }
     }
     Views: Record<string, never>
     Functions: Record<string, never>

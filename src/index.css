@@ -280,6 +280,20 @@ button { cursor: pointer; border: 0; background: none; color: inherit; }
 .admin-denied p { margin: 0; }
 .admin-denied .primary-button { margin-top: 10px; }
 
+/* ---------- Admin Gate ---------- */
+.admin-gate-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+.admin-gate-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 40px 32px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.admin-gate-icon { width: 56px; height: 56px; border-radius: 16px; background: var(--primary); color: #fff; display: grid; place-items: center; margin-bottom: 4px; }
+.admin-gate-card h1 { font: 600 24px/1.2 'Inter', sans-serif; margin: 0; color: var(--text); letter-spacing: -.02em; }
+.admin-gate-card .muted { margin: 0; font-size: 13px; }
+.admin-gate-field { width: 100%; margin-top: 6px; }
+.admin-gate-field input { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; background: var(--bg-secondary); outline: none; color: var(--text); font-size: 15px; transition: var(--transition); text-align: center; letter-spacing: .08em; }
+.admin-gate-field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); background: var(--card); }
+.admin-gate-error { width: 100%; margin: 0; }
+.admin-gate-btn { width: 100%; margin-top: 4px; }
+.admin-gate-back { color: var(--text-muted); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-sm); transition: var(--transition); }
+.admin-gate-back:hover { background: var(--bg-secondary); color: var(--text); }
+
 .admin-shell { min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; }
 .admin-header { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
 .admin-brand { display: flex; align-items: center; gap: 10px; }

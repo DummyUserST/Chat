@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Ban, CircleUserRound, File as FileIcon, Image, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Smile, Sparkles, Square, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { ArrowLeft, Ban, CircleUserRound, File as FileIcon, Image, LogIn, LogOut, MessageCircle, Mic, MoveHorizontal as MoreHorizontal, Paperclip, Play, Pause, Repeat, Search, Send, Settings, ShieldCheck, Smile, Sparkles, Square, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { usePresence } from '../hooks/usePresence'
@@ -36,6 +36,7 @@ export default function ChatPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Profile[]>([])
   const [mobile, setMobile] = useState(false)
+  const [openError, setOpenError] = useState('')
   const navigate = useNavigate()
   const hasAdminRole = user?.app_metadata?.role === 'admin'
   const [adminMode, setAdminMode] = useState(() => localStorage.getItem(ADMIN_MODE_KEY) !== 'user')
@@ -84,10 +85,15 @@ export default function ChatPage() {
 
   const open = async (person: Profile) => {
     setQuery(''); setResults([])
+    setOpenError('')
     let chat = chats.find(x => x.person.id === person.id)
     if (!chat) {
       const { data: conversation, error } = await supabase.rpc('create_direct_conversation', { other_user_id: person.id })
-      if (error || !conversation || !user) return
+      if (error) {
+        setOpenError('You can only message people who accepted your friend request. Send a request first.')
+        return
+      }
+      if (!conversation || !user) return
       chat = { conversation, person }
       setChats(x => [chat!, ...x])
     }
@@ -117,6 +123,7 @@ export default function ChatPage() {
             <input aria-label="Search by email or name" placeholder="Enter email to chat..." value={query} onChange={e => setQuery(e.target.value)} />
             {query && <button onClick={() => setQuery('')} aria-label="Clear"><X size={15} /></button>}
           </div>
+          {openError && <div className="error open-error">{openError}</div>}
           {results.length > 0 && (
             <div className="results">
               {results.map(p => (
@@ -164,6 +171,7 @@ export default function ChatPage() {
         chat={selected}
         userId={user?.id || ''}
         online={selected ? isOnline(selected.person.id) : false}
+        isAdminPanel={isAdmin}
         back={() => setMobile(false)}
         onLeft={conversationId => {
           setChats(x => x.filter(c => c.conversation.id !== conversationId))
@@ -225,7 +233,7 @@ function AttachmentView({ message }: { message: Message }) {
   )
 }
 
-function ChatPanel({ chat, userId, online, back, onLeft }: { chat: Chat | null; userId: string; online: boolean; back: () => void; onLeft: (conversationId: string) => void }) {
+function ChatPanel({ chat, userId, online, back, onLeft, isAdminPanel }: { chat: Chat | null; userId: string; online: boolean; back: () => void; onLeft: (conversationId: string) => void; isAdminPanel: boolean }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(false)
@@ -279,7 +287,14 @@ function ChatPanel({ chat, userId, online, back, onLeft }: { chat: Chat | null; 
       ...(params.attachmentUrl ? { attachment_url: params.attachmentUrl, attachment_type: params.attachmentType!, attachment_name: params.attachmentName!, attachment_duration: params.attachmentDuration ?? null } : {})
     }).select().single()
     if (error) {
-      setSendError('Could not send message. Please try again.')
+      const msg = error.message || ''
+      if (msg.includes('not a member') || msg.includes('policy') || error.code === '42501') {
+        setSendError('You are not a member of this conversation.')
+      } else if (msg.includes('friend')) {
+        setSendError('You can only message friends.')
+      } else {
+        setSendError('Could not send message. Please try again.')
+      }
       return
     }
     if (data) {
@@ -349,6 +364,7 @@ function ChatPanel({ chat, userId, online, back, onLeft }: { chat: Chat | null; 
   const [reactions, setReactions] = useState<MessageReaction[]>([])
   const [reactionPicker, setReactionPicker] = useState<string | null>(null)
   const [showBlockMenu, setShowBlockMenu] = useState(false)
+  const [joinBusy, setJoinBusy] = useState(false)
   const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
   useEffect(() => {
@@ -412,6 +428,23 @@ function ChatPanel({ chat, userId, online, back, onLeft }: { chat: Chat | null; 
         <button className="back" onClick={back} aria-label="Back"><ArrowLeft size={19} /></button>
         <Avatar profile={chat.person} online={online} />
         <div><h2>{chat.person.display_name}</h2><p>{online ? 'Online now' : `@${chat.person.username}`}</p></div>
+        {isAdminPanel && (
+          <button
+            className="admin-join-chat"
+            onClick={async () => {
+              setJoinBusy(true)
+              const { error } = await supabase.rpc('admin_join_conversation', { p_conversation_id: chat.conversation.id })
+              setJoinBusy(false)
+              if (error) { setSendError('Could not join this conversation.'); return }
+              setSendError('')
+            }}
+            disabled={joinBusy}
+            aria-label="Join conversation as admin"
+            title="Join conversation as admin"
+          >
+            <LogIn size={16} /> Join
+          </button>
+        )}
         <button className="more" aria-label="More options" onClick={() => setShowBlockMenu(!showBlockMenu)}><MoreHorizontal size={20} /></button>
         {showBlockMenu && (
           <div className="chat-menu">
